@@ -7,5 +7,5 @@ class Project(models.Model):
     backend = models.CharField(max_length=150, null=True, blank=True)
     devops = models.CharField(max_length=150, null=True, blank=True)
     url = models.URLField(max_length=200)
-    image = models.URLField(max_length=200)
-    finished = models.BooleanField(default=True)
+    image = models.URLField(max_length=200, null=True, blank=True)
+    finished = models.BooleanField()
