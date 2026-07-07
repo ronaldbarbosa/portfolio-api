@@ -16,6 +16,8 @@ public static class ProjectImageEndpoints
 
         group.MapPost("/", UploadAsync).DisableAntiforgery();
         group.MapDelete("/{imageId:guid}", DeleteAsync);
+        group.MapPost("/{imageId:guid}/cover", SetCoverAsync);
+        group.MapPut("/order", ReorderAsync);
 
         return group;
     }
@@ -104,5 +106,64 @@ public static class ProjectImageEndpoints
         await db.SaveChangesAsync(cancellationToken);
 
         return Results.NoContent();
+    }
+
+    private static async Task<IResult> SetCoverAsync(
+        Guid projectId,
+        Guid imageId,
+        AppDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var images = await db.ProjectImages
+            .Where(i => i.ProjectId == projectId)
+            .ToListAsync(cancellationToken);
+
+        if (images.All(i => i.Id != imageId))
+        {
+            return Results.NotFound();
+        }
+
+        foreach (var image in images)
+        {
+            image.IsCover = image.Id == imageId;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(images
+            .OrderBy(i => i.Order)
+            .Select(i => new ProjectImageResponse(i.Id, i.Url, i.IsCover, i.Order)));
+    }
+
+    private static async Task<IResult> ReorderAsync(
+        Guid projectId,
+        SetImageOrderRequest request,
+        AppDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var images = await db.ProjectImages
+            .Where(i => i.ProjectId == projectId)
+            .ToListAsync(cancellationToken);
+
+        var requestedIds = request.ImageIds;
+        if (requestedIds is null || images.Count != requestedIds.Count ||
+            !images.Select(i => i.Id).ToHashSet().SetEquals(requestedIds))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["imageIds"] = ["A lista deve conter exatamente os ids das imagens existentes do projeto."],
+            });
+        }
+
+        for (var index = 0; index < requestedIds.Count; index++)
+        {
+            images.First(i => i.Id == requestedIds[index]).Order = index;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(images
+            .OrderBy(i => i.Order)
+            .Select(i => new ProjectImageResponse(i.Id, i.Url, i.IsCover, i.Order)));
     }
 }

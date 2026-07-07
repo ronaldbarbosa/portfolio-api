@@ -4,6 +4,8 @@ namespace Portfolio.Api.Dtos;
 
 public record ProjectImageResponse(Guid Id, string Url, bool IsCover, int Order);
 
+public record SetImageOrderRequest(List<Guid> ImageIds);
+
 public record ProjectResponse(
     Guid Id,
     string Name,

@@ -146,4 +146,97 @@ public class ProjectImageEndpointsTests(PortfolioApiFactory factory) : IClassFix
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
         Assert.False(File.Exists(imagePath));
     }
+
+    [Fact]
+    public async Task SetCover_MakesTargetCoverAndUnsetsPrevious()
+    {
+        var (client, projectId) = await CreateProjectAsync();
+        var firstUpload = await client.PostAsync($"/api/projects/{projectId}/images", BuildImageContent());
+        var firstImages = await firstUpload.Content.ReadFromJsonAsync<List<ProjectImageResponse>>();
+        var secondUpload = await client.PostAsync($"/api/projects/{projectId}/images", BuildImageContent());
+        var secondImages = await secondUpload.Content.ReadFromJsonAsync<List<ProjectImageResponse>>();
+        var newCoverId = secondImages![0].Id;
+
+        var response = await client.PostAsync($"/api/projects/{projectId}/images/{newCoverId}/cover", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var images = await response.Content.ReadFromJsonAsync<List<ProjectImageResponse>>();
+        Assert.True(images!.Single(i => i.Id == newCoverId).IsCover);
+        Assert.False(images!.Single(i => i.Id == firstImages![0].Id).IsCover);
+    }
+
+    [Fact]
+    public async Task SetCover_ReturnsNotFound_WhenImageDoesNotBelongToProject()
+    {
+        var (client, projectId) = await CreateProjectAsync();
+
+        var response = await client.PostAsync($"/api/projects/{projectId}/images/{Guid.NewGuid()}/cover", null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetCover_WithoutToken_ReturnsUnauthorized()
+    {
+        var (client, projectId) = await CreateProjectAsync();
+        var uploadResponse = await client.PostAsync($"/api/projects/{projectId}/images", BuildImageContent());
+        var images = await uploadResponse.Content.ReadFromJsonAsync<List<ProjectImageResponse>>();
+        var anonymousClient = factory.CreateClient();
+
+        var response = await anonymousClient.PostAsync($"/api/projects/{projectId}/images/{images![0].Id}/cover", null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reorder_UpdatesOrderSequentially()
+    {
+        var (client, projectId) = await CreateProjectAsync();
+        var firstUpload = await client.PostAsync($"/api/projects/{projectId}/images", BuildImageContent());
+        var firstImages = await firstUpload.Content.ReadFromJsonAsync<List<ProjectImageResponse>>();
+        var secondUpload = await client.PostAsync($"/api/projects/{projectId}/images", BuildImageContent());
+        var secondImages = await secondUpload.Content.ReadFromJsonAsync<List<ProjectImageResponse>>();
+        var firstId = firstImages![0].Id;
+        var secondId = secondImages![0].Id;
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/projects/{projectId}/images/order",
+            new SetImageOrderRequest([secondId, firstId]));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var images = await response.Content.ReadFromJsonAsync<List<ProjectImageResponse>>();
+        Assert.Equal(secondId, images![0].Id);
+        Assert.Equal(0, images[0].Order);
+        Assert.Equal(firstId, images[1].Id);
+        Assert.Equal(1, images[1].Order);
+    }
+
+    [Fact]
+    public async Task Reorder_WithMismatchedIds_ReturnsValidationProblem()
+    {
+        var (client, projectId) = await CreateProjectAsync();
+        var uploadResponse = await client.PostAsync($"/api/projects/{projectId}/images", BuildImageContent());
+        var images = await uploadResponse.Content.ReadFromJsonAsync<List<ProjectImageResponse>>();
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/projects/{projectId}/images/order",
+            new SetImageOrderRequest([images![0].Id, Guid.NewGuid()]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reorder_WithoutToken_ReturnsUnauthorized()
+    {
+        var (client, projectId) = await CreateProjectAsync();
+        var uploadResponse = await client.PostAsync($"/api/projects/{projectId}/images", BuildImageContent());
+        var images = await uploadResponse.Content.ReadFromJsonAsync<List<ProjectImageResponse>>();
+        var anonymousClient = factory.CreateClient();
+
+        var response = await anonymousClient.PutAsJsonAsync(
+            $"/api/projects/{projectId}/images/order",
+            new SetImageOrderRequest([images![0].Id]));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
 }
