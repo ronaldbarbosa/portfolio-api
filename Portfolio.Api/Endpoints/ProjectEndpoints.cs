@@ -1,0 +1,194 @@
+using Microsoft.EntityFrameworkCore;
+using Portfolio.Api.Data;
+using Portfolio.Api.Dtos;
+using Portfolio.Api.Models;
+using Portfolio.Api.Services;
+
+namespace Portfolio.Api.Endpoints;
+
+public static class ProjectEndpoints
+{
+    public static RouteGroupBuilder MapProjectEndpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("/api/projects").WithTags("Projects");
+
+        group.MapGet("/", GetAllAsync);
+        group.MapGet("/{id:guid}", GetByIdAsync);
+        group.MapPost("/", CreateAsync).RequireAuthorization();
+        group.MapPut("/{id:guid}", UpdateAsync).RequireAuthorization();
+        group.MapDelete("/{id:guid}", DeleteAsync).RequireAuthorization();
+
+        return group;
+    }
+
+    private static async Task<IResult> GetAllAsync(AppDbContext db)
+    {
+        var projects = await db.Projects
+            .Include(p => p.Technologies)
+            .Include(p => p.Images)
+            .OrderByDescending(p => p.CreatedAt)
+            .ToListAsync();
+
+        return Results.Ok(projects.Select(p => p.ToResponse()));
+    }
+
+    private static async Task<IResult> GetByIdAsync(Guid id, AppDbContext db)
+    {
+        var project = await db.Projects
+            .Include(p => p.Technologies)
+            .Include(p => p.Images)
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        return project is null ? Results.NotFound() : Results.Ok(project.ToResponse());
+    }
+
+    private static async Task<IResult> CreateAsync(CreateProjectRequest request, AppDbContext db)
+    {
+        var errors = ValidateProject(request.Name, request.Description, request.RepositoryUrl, request.DemoUrl);
+        if (errors.Count > 0)
+        {
+            return Results.ValidationProblem(errors);
+        }
+
+        var project = new Project
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name.Trim(),
+            Description = request.Description.Trim(),
+            RepositoryUrl = NormalizeUrl(request.RepositoryUrl),
+            DemoUrl = NormalizeUrl(request.DemoUrl),
+            Technologies = await ResolveTechnologiesAsync(db, request.Technologies),
+        };
+
+        db.Projects.Add(project);
+        await db.SaveChangesAsync();
+
+        return Results.Created($"/api/projects/{project.Id}", project.ToResponse());
+    }
+
+    private static async Task<IResult> UpdateAsync(Guid id, UpdateProjectRequest request, AppDbContext db)
+    {
+        var errors = ValidateProject(request.Name, request.Description, request.RepositoryUrl, request.DemoUrl);
+        if (errors.Count > 0)
+        {
+            return Results.ValidationProblem(errors);
+        }
+
+        var project = await db.Projects
+            .Include(p => p.Technologies)
+            .Include(p => p.Images)
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        if (project is null)
+        {
+            return Results.NotFound();
+        }
+
+        project.Name = request.Name.Trim();
+        project.Description = request.Description.Trim();
+        project.RepositoryUrl = NormalizeUrl(request.RepositoryUrl);
+        project.DemoUrl = NormalizeUrl(request.DemoUrl);
+        project.UpdatedAt = DateTime.UtcNow;
+        project.Technologies = await ResolveTechnologiesAsync(db, request.Technologies);
+
+        await db.SaveChangesAsync();
+
+        return Results.Ok(project.ToResponse());
+    }
+
+    private static async Task<IResult> DeleteAsync(Guid id, AppDbContext db, IImageStorageService imageStorage)
+    {
+        var project = await db.Projects
+            .Include(p => p.Images)
+            .FirstOrDefaultAsync(p => p.Id == id);
+
+        if (project is null)
+        {
+            return Results.NotFound();
+        }
+
+        foreach (var image in project.Images)
+        {
+            imageStorage.Delete(project.Id, image.FileName);
+        }
+
+        db.Projects.Remove(project);
+        await db.SaveChangesAsync();
+
+        return Results.NoContent();
+    }
+
+    private static string? NormalizeUrl(string? url) =>
+        string.IsNullOrWhiteSpace(url) ? null : url.Trim();
+
+    internal static Dictionary<string, string[]> ValidateProject(
+        string name, string description, string? repositoryUrl, string? demoUrl)
+    {
+        var errors = new Dictionary<string, string[]>();
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            errors["name"] = ["O nome é obrigatório."];
+        }
+        else if (name.Length > 200)
+        {
+            errors["name"] = ["O nome deve ter no máximo 200 caracteres."];
+        }
+
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            errors["description"] = ["A descrição é obrigatória."];
+        }
+        else if (description.Length > 4000)
+        {
+            errors["description"] = ["A descrição deve ter no máximo 4000 caracteres."];
+        }
+
+        if (!string.IsNullOrWhiteSpace(repositoryUrl) && !Uri.IsWellFormedUriString(repositoryUrl, UriKind.Absolute))
+        {
+            errors["repositoryUrl"] = ["A URL do repositório é inválida."];
+        }
+
+        if (!string.IsNullOrWhiteSpace(demoUrl) && !Uri.IsWellFormedUriString(demoUrl, UriKind.Absolute))
+        {
+            errors["demoUrl"] = ["A URL de demonstração é inválida."];
+        }
+
+        return errors;
+    }
+
+    internal static async Task<List<Technology>> ResolveTechnologiesAsync(AppDbContext db, List<string>? names)
+    {
+        if (names is null || names.Count == 0)
+        {
+            return [];
+        }
+
+        var normalized = names
+            .Select(n => n.Trim())
+            .Where(n => n.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // SQLite usa colação binária (case-sensitive) por padrão, então a comparação
+        // case-insensitive precisa ser feita em memória em vez de traduzida para SQL.
+        var existing = await db.Technologies.ToListAsync();
+
+        var result = new List<Technology>();
+        foreach (var name in normalized)
+        {
+            var match = existing.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                result.Add(match);
+                continue;
+            }
+
+            var technology = new Technology { Id = Guid.NewGuid(), Name = name };
+            db.Technologies.Add(technology);
+            result.Add(technology);
+        }
+
+        return result;
+    }
+}

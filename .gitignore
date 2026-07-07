@@ -1,0 +1,12 @@
+.idea
+bin/
+obj/
+/packages/
+riderModule.iml
+/_ReSharper.Caches/
+
+# Portfolio.Api runtime data
+Portfolio.Api/*.db
+Portfolio.Api/*.db-shm
+Portfolio.Api/*.db-wal
+Portfolio.Api/wwwroot/uploads/
