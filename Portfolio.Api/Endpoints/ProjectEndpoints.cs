@@ -8,6 +8,8 @@ namespace Portfolio.Api.Endpoints;
 
 public static class ProjectEndpoints
 {
+    private const int DefaultPageSize = 9;
+
     public static RouteGroupBuilder MapProjectEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/projects").WithTags("Projects");
@@ -21,15 +23,34 @@ public static class ProjectEndpoints
         return group;
     }
 
-    private static async Task<IResult> GetAllAsync(AppDbContext db)
+    private static async Task<IResult> GetAllAsync(AppDbContext db, int page = 1, int pageSize = DefaultPageSize)
     {
-        var projects = await db.Projects
+        page = Math.Max(page, 1);
+        pageSize = pageSize < 1 ? DefaultPageSize : pageSize;
+
+        var query = db.Projects
             .Include(p => p.Technologies)
             .Include(p => p.Images)
-            .OrderByDescending(p => p.CreatedAt)
+            .OrderByDescending(p => p.CreatedAt);
+
+        var totalItemCount = await query.CountAsync();
+        var totalPages = totalItemCount == 0 ? 0 : (int)Math.Ceiling(totalItemCount / (double)pageSize);
+
+        var projects = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync();
 
-        return Results.Ok(projects.Select(p => p.ToResponse()));
+        var response = new PaginatedResponse<ProjectResponse>(
+            projects.Select(p => p.ToResponse()).ToList(),
+            totalItemCount,
+            page,
+            pageSize,
+            totalPages,
+            page > 1,
+            page < totalPages);
+
+        return Results.Ok(response);
     }
 
     private static async Task<IResult> GetByIdAsync(Guid id, AppDbContext db)
@@ -57,7 +78,9 @@ public static class ProjectEndpoints
             Description = request.Description.Trim(),
             RepositoryUrl = NormalizeUrl(request.RepositoryUrl),
             DemoUrl = NormalizeUrl(request.DemoUrl),
-            Technologies = await ResolveTechnologiesAsync(db, request.Technologies),
+            IsFinished = request.IsFinished,
+            Technologies = await ResolveTechnologiesAsync(
+                db, request.FrontendTechnologies, request.BackendTechnologies, request.Tools),
         };
 
         db.Projects.Add(project);
@@ -88,8 +111,10 @@ public static class ProjectEndpoints
         project.Description = request.Description.Trim();
         project.RepositoryUrl = NormalizeUrl(request.RepositoryUrl);
         project.DemoUrl = NormalizeUrl(request.DemoUrl);
+        project.IsFinished = request.IsFinished;
         project.UpdatedAt = DateTime.UtcNow;
-        project.Technologies = await ResolveTechnologiesAsync(db, request.Technologies);
+        project.Technologies = await ResolveTechnologiesAsync(
+            db, request.FrontendTechnologies, request.BackendTechnologies, request.Tools);
 
         await db.SaveChangesAsync();
 
@@ -157,7 +182,26 @@ public static class ProjectEndpoints
         return errors;
     }
 
-    internal static async Task<List<Technology>> ResolveTechnologiesAsync(AppDbContext db, List<string>? names)
+    internal static async Task<List<Technology>> ResolveTechnologiesAsync(
+        AppDbContext db,
+        List<string>? frontendNames,
+        List<string>? backendNames,
+        List<string>? toolNames)
+    {
+        // SQLite usa colação binária (case-sensitive) por padrão, então a comparação
+        // case-insensitive precisa ser feita em memória em vez de traduzida para SQL.
+        var existing = await db.Technologies.ToListAsync();
+
+        var result = new List<Technology>();
+        result.AddRange(ResolveCategory(db, existing, frontendNames, TechnologyCategory.Frontend));
+        result.AddRange(ResolveCategory(db, existing, backendNames, TechnologyCategory.Backend));
+        result.AddRange(ResolveCategory(db, existing, toolNames, TechnologyCategory.Tool));
+
+        return result;
+    }
+
+    private static List<Technology> ResolveCategory(
+        AppDbContext db, List<Technology> existing, List<string>? names, TechnologyCategory category)
     {
         if (names is null || names.Count == 0)
         {
@@ -170,10 +214,6 @@ public static class ProjectEndpoints
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // SQLite usa colação binária (case-sensitive) por padrão, então a comparação
-        // case-insensitive precisa ser feita em memória em vez de traduzida para SQL.
-        var existing = await db.Technologies.ToListAsync();
-
         var result = new List<Technology>();
         foreach (var name in normalized)
         {
@@ -184,8 +224,9 @@ public static class ProjectEndpoints
                 continue;
             }
 
-            var technology = new Technology { Id = Guid.NewGuid(), Name = name };
+            var technology = new Technology { Id = Guid.NewGuid(), Name = name, Category = category };
             db.Technologies.Add(technology);
+            existing.Add(technology);
             result.Add(technology);
         }
 

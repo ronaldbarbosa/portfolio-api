@@ -16,6 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.Configure<AdminSeedOptions>(builder.Configuration.GetSection(AdminSeedOptions.SectionName));
+builder.Services.Configure<DevUserSeedOptions>(builder.Configuration.GetSection(DevUserSeedOptions.SectionName));
 
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("Connection string 'Default' não configurada.");
@@ -52,6 +53,19 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+const string WebCorsPolicy = "Web";
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(WebCorsPolicy, policy =>
+    {
+        if (allowedOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+        }
+    });
+});
+
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IImageStorageService, LocalImageStorageService>();
 
@@ -71,6 +85,11 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
     await AdminSeeder.SeedAsync(scope.ServiceProvider);
+
+    if (app.Environment.IsDevelopment())
+    {
+        await DevUserSeeder.SeedAsync(scope.ServiceProvider);
+    }
 }
 
 app.MapOpenApi();
@@ -85,6 +104,8 @@ app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(webRootPath),
 });
+
+app.UseCors(WebCorsPolicy);
 
 app.UseAuthentication();
 app.UseAuthorization();

@@ -35,6 +35,8 @@ public class PortfolioApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("Jwt__ExpiryMinutes", "60");
         Environment.SetEnvironmentVariable("AdminUser__Email", AdminEmail);
         Environment.SetEnvironmentVariable("AdminUser__Password", AdminPassword);
+        Environment.SetEnvironmentVariable("DevUser__Email", "dev@integration.test");
+        Environment.SetEnvironmentVariable("DevUser__Password", "Integration-Test-Dev!123");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

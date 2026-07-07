@@ -9,12 +9,16 @@ namespace Portfolio.Api.IntegrationTests;
 
 public class ProjectEndpointsTests(PortfolioApiFactory factory) : IClassFixture<PortfolioApiFactory>
 {
-    private static CreateProjectRequest ValidProjectRequest(string? name = null, List<string>? technologies = null) => new(
+    private static CreateProjectRequest ValidProjectRequest(
+        string? name = null, List<string>? backendTechnologies = null) => new(
         Name: name ?? $"Project {Guid.NewGuid()}",
         Description: "Descrição de teste",
         RepositoryUrl: "https://github.com/user/repo",
         DemoUrl: "https://demo.dev",
-        Technologies: technologies ?? ["C#", "ASP.NET Core"]);
+        IsFinished: false,
+        FrontendTechnologies: [],
+        BackendTechnologies: backendTechnologies ?? ["C#", "ASP.NET Core"],
+        Tools: []);
 
     [Fact]
     public async Task GetAll_ReturnsOk_WithoutAuthentication()
@@ -24,6 +28,26 @@ public class ProjectEndpointsTests(PortfolioApiFactory factory) : IClassFixture<
         var response = await client.GetAsync("/api/projects");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_ReturnsPaginatedResponse_RespectingPageSize()
+    {
+        var client = await factory.CreateAuthenticatedClientAsync();
+        for (var i = 0; i < 3; i++)
+        {
+            await client.PostAsJsonAsync("/api/projects", ValidProjectRequest());
+        }
+
+        var response = await client.GetAsync("/api/projects?page=1&pageSize=2");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var page = await response.Content.ReadFromJsonAsync<PaginatedResponse<ProjectResponse>>();
+        Assert.Equal(2, page!.Items.Count);
+        Assert.Equal(2, page.PageSize);
+        Assert.Equal(1, page.PageNumber);
+        Assert.True(page.HasNextPage);
+        Assert.False(page.HasPreviousPage);
     }
 
     [Fact]
@@ -47,7 +71,7 @@ public class ProjectEndpointsTests(PortfolioApiFactory factory) : IClassFixture<
         Assert.NotNull(response.Headers.Location);
 
         var project = await response.Content.ReadFromJsonAsync<ProjectResponse>();
-        Assert.Equal(["ASP.NET Core", "C#"], project!.Technologies);
+        Assert.Equal(["ASP.NET Core", "C#"], project!.BackendTechnologies);
     }
 
     [Fact]
@@ -67,8 +91,9 @@ public class ProjectEndpointsTests(PortfolioApiFactory factory) : IClassFixture<
         var client = await factory.CreateAuthenticatedClientAsync();
         var technologyName = $"Tech-{Guid.NewGuid()}";
 
-        await client.PostAsJsonAsync("/api/projects", ValidProjectRequest(technologies: [technologyName]));
-        await client.PostAsJsonAsync("/api/projects", ValidProjectRequest(technologies: [technologyName.ToUpperInvariant()]));
+        await client.PostAsJsonAsync("/api/projects", ValidProjectRequest(backendTechnologies: [technologyName]));
+        await client.PostAsJsonAsync(
+            "/api/projects", ValidProjectRequest(backendTechnologies: [technologyName.ToUpperInvariant()]));
 
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -113,14 +138,18 @@ public class ProjectEndpointsTests(PortfolioApiFactory factory) : IClassFixture<
             Description: "Nova descrição",
             RepositoryUrl: "https://github.com/user/repo2",
             DemoUrl: null,
-            Technologies: ["Docker"]);
+            IsFinished: true,
+            FrontendTechnologies: [],
+            BackendTechnologies: [],
+            Tools: ["Docker"]);
 
         var response = await client.PutAsJsonAsync($"/api/projects/{created!.Id}", updateRequest);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var updated = await response.Content.ReadFromJsonAsync<ProjectResponse>();
         Assert.Equal("Updated Name", updated!.Name);
-        Assert.Equal(["Docker"], updated.Technologies);
+        Assert.True(updated.IsFinished);
+        Assert.Equal(["Docker"], updated.Tools);
     }
 
     [Fact]
@@ -130,7 +159,7 @@ public class ProjectEndpointsTests(PortfolioApiFactory factory) : IClassFixture<
 
         var response = await client.PutAsJsonAsync(
             $"/api/projects/{Guid.NewGuid()}",
-            new UpdateProjectRequest("Name", "Descrição", null, null, []));
+            new UpdateProjectRequest("Name", "Descrição", null, null, false, [], [], []));
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }

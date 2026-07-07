@@ -34,6 +34,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         builder.Entity<Technology>(entity =>
         {
             entity.Property(t => t.Name).IsRequired().HasMaxLength(100);
+            entity.Property(t => t.Category).HasConversion<string>().HasMaxLength(20).IsRequired();
             entity.HasIndex(t => t.Name).IsUnique();
         });
 

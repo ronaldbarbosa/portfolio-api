@@ -7,6 +7,7 @@ public class Project
     public required string Description { get; set; }
     public string? RepositoryUrl { get; set; }
     public string? DemoUrl { get; set; }
+    public bool IsFinished { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

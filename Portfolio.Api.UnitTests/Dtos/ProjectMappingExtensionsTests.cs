@@ -15,6 +15,7 @@ public class ProjectMappingExtensionsTests
             Description = "Descrição",
             RepositoryUrl = "https://github.com/user/repo",
             DemoUrl = "https://demo.dev",
+            IsFinished = true,
             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             UpdatedAt = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
         };
@@ -26,12 +27,13 @@ public class ProjectMappingExtensionsTests
         Assert.Equal(project.Description, response.Description);
         Assert.Equal(project.RepositoryUrl, response.RepositoryUrl);
         Assert.Equal(project.DemoUrl, response.DemoUrl);
+        Assert.Equal(project.IsFinished, response.IsFinished);
         Assert.Equal(project.CreatedAt, response.CreatedAt);
         Assert.Equal(project.UpdatedAt, response.UpdatedAt);
     }
 
     [Fact]
-    public void ToResponse_OrdersTechnologiesAlphabetically()
+    public void ToResponse_OrdersTechnologiesAlphabeticallyWithinEachCategory()
     {
         var project = new Project
         {
@@ -40,14 +42,18 @@ public class ProjectMappingExtensionsTests
             Description = "Descrição",
             Technologies =
             [
-                new Technology { Id = Guid.NewGuid(), Name = "Zeta" },
-                new Technology { Id = Guid.NewGuid(), Name = "Alpha" },
+                new Technology { Id = Guid.NewGuid(), Name = "Zeta", Category = TechnologyCategory.Frontend },
+                new Technology { Id = Guid.NewGuid(), Name = "Alpha", Category = TechnologyCategory.Frontend },
+                new Technology { Id = Guid.NewGuid(), Name = "ASP.NET Core", Category = TechnologyCategory.Backend },
+                new Technology { Id = Guid.NewGuid(), Name = "Docker", Category = TechnologyCategory.Tool },
             ],
         };
 
         var response = project.ToResponse();
 
-        Assert.Equal(["Alpha", "Zeta"], response.Technologies);
+        Assert.Equal(["Alpha", "Zeta"], response.FrontendTechnologies);
+        Assert.Equal(["ASP.NET Core"], response.BackendTechnologies);
+        Assert.Equal(["Docker"], response.Tools);
     }
 
     [Fact]

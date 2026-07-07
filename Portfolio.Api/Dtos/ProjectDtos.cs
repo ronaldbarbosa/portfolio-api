@@ -10,9 +10,12 @@ public record ProjectResponse(
     string Description,
     string? RepositoryUrl,
     string? DemoUrl,
+    bool IsFinished,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    IReadOnlyList<string> Technologies,
+    IReadOnlyList<string> FrontendTechnologies,
+    IReadOnlyList<string> BackendTechnologies,
+    IReadOnlyList<string> Tools,
     IReadOnlyList<ProjectImageResponse> Images);
 
 public record CreateProjectRequest(
@@ -20,14 +23,20 @@ public record CreateProjectRequest(
     string Description,
     string? RepositoryUrl,
     string? DemoUrl,
-    List<string>? Technologies);
+    bool IsFinished,
+    List<string>? FrontendTechnologies,
+    List<string>? BackendTechnologies,
+    List<string>? Tools);
 
 public record UpdateProjectRequest(
     string Name,
     string Description,
     string? RepositoryUrl,
     string? DemoUrl,
-    List<string>? Technologies);
+    bool IsFinished,
+    List<string>? FrontendTechnologies,
+    List<string>? BackendTechnologies,
+    List<string>? Tools);
 
 public static class ProjectMappingExtensions
 {
@@ -37,9 +46,18 @@ public static class ProjectMappingExtensions
         project.Description,
         project.RepositoryUrl,
         project.DemoUrl,
+        project.IsFinished,
         project.CreatedAt,
         project.UpdatedAt,
-        project.Technologies.Select(t => t.Name).OrderBy(n => n).ToList(),
+        project.Technologies
+            .Where(t => t.Category == TechnologyCategory.Frontend)
+            .Select(t => t.Name).OrderBy(n => n).ToList(),
+        project.Technologies
+            .Where(t => t.Category == TechnologyCategory.Backend)
+            .Select(t => t.Name).OrderBy(n => n).ToList(),
+        project.Technologies
+            .Where(t => t.Category == TechnologyCategory.Tool)
+            .Select(t => t.Name).OrderBy(n => n).ToList(),
         project.Images
             .OrderBy(i => i.Order)
             .Select(i => new ProjectImageResponse(i.Id, i.Url, i.IsCover, i.Order))

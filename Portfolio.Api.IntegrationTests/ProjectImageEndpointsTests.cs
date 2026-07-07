@@ -27,7 +27,10 @@ public class ProjectImageEndpointsTests(PortfolioApiFactory factory) : IClassFix
             Description: "Descrição",
             RepositoryUrl: null,
             DemoUrl: null,
-            Technologies: []);
+            IsFinished: false,
+            FrontendTechnologies: [],
+            BackendTechnologies: [],
+            Tools: []);
 
         var response = await client.PostAsJsonAsync("/api/projects", request);
         var project = await response.Content.ReadFromJsonAsync<ProjectResponse>();
